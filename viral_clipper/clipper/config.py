@@ -141,6 +141,7 @@ class ClipperConfig:
     tracking_deadzone: float = 0.06  # fraction of frame width
 
     # rendering
+    fps: Optional[int] = None  # override the preset's frame rate
     ffmpeg_preset: str = "veryfast"
     normalize_audio: bool = True
     keep_intermediates: bool = False
@@ -169,6 +170,8 @@ class ClipperConfig:
             overrides["min_duration"] = float(self.min_duration)
         if self.max_duration is not None:
             overrides["max_duration"] = float(self.max_duration)
+        if self.fps is not None:
+            overrides["fps"] = int(self.fps)
         if overrides:
             merged = replace(base, **overrides)
             # Keep the target inside the (possibly narrowed) duration window.
@@ -199,6 +202,8 @@ class ClipperConfig:
             raise ValueError("max_overlap must be in [0, 1)")
         if not 0.0 <= self.llm_weight <= 1.0:
             raise ValueError("llm_weight must be in [0, 1]")
+        if self.fps is not None and not 15 <= self.fps <= 60:
+            raise ValueError("fps must be between 15 and 60")
         return self
 
     def to_dict(self) -> Dict[str, Any]:

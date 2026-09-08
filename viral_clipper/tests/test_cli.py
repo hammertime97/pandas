@@ -46,6 +46,13 @@ def test_config_from_args_passes_durations_and_llm():
     assert config.use_llm is True and config.llm_weight == 0.25
 
 
+def test_fps_flag():
+    assert config_from_args(parse(["clip", "in.mp4", "--fps", "60"])).fps == 60
+    assert config_from_args(parse(["clip", "in.mp4"])).fps is None
+    with pytest.raises(SystemExit):
+        parse(["clip", "in.mp4", "--fps", "500"])
+
+
 def test_invalid_choices_are_rejected_by_the_parser():
     for argv in (["clip", "in.mp4", "--platform", "myspace"],
                  ["clip", "in.mp4", "--layout", "sideways"],

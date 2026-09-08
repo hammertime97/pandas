@@ -9,9 +9,14 @@ word-by-word captions burned in, loudness matched to what the platforms expect,
 plus a suggested title, caption and hashtags.
 
 ```bash
-clipper clip https://www.youtube.com/watch?v=... --platform tiktok --max-clips 5
+clipper clip https://www.youtube.com/watch?v=... --platform tiktok --max-clips 10
 clipper serve                      # same thing, with a web UI on :8000
 ```
+
+**No install? Use the notebook.** `Viral_Clipper_Colab.ipynb` is a single self-contained
+file — open it in Google Colab, paste a link, run the cells. The whole tool is embedded
+in it, so there is nothing to clone and nothing else to download. Regenerate it after
+changing the package with `python build_colab_notebook.py`.
 
 ---
 
@@ -159,6 +164,7 @@ clipper clip talk.mp4 --json > clips.json
 | `--min-score` | `0` | drop anything weaker |
 | `--layout` | `auto` | `auto`, `center`, `blur`, `fit` |
 | `--caption-style` | `punch` | `punch`, `clean`, `minimal` |
+| `--fps` | preset (30) | output frame rate, 15-60 |
 | `--model` | `small` | whisper size: `tiny` … `large-v3` |
 | `--transcript` | — | reuse an existing `.srt`/`.vtt`/`.json` |
 | `--dry-run` | off | score and plan only |

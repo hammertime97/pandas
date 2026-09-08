@@ -38,6 +38,17 @@ def test_validation_rejects_impossible_settings(kwargs, message):
         ClipperConfig(**kwargs).validate()
 
 
+def test_fps_override_reaches_the_preset():
+    assert ClipperConfig().preset().fps == 30
+    assert ClipperConfig(fps=60).validate().preset().fps == 60
+
+
+@pytest.mark.parametrize("fps", [0, 14, 61, 120])
+def test_fps_override_is_range_checked(fps):
+    with pytest.raises(ValueError, match="fps"):
+        ClipperConfig(fps=fps).validate()
+
+
 def test_defaults_validate():
     config = ClipperConfig().validate()
     assert config.platform in PRESETS

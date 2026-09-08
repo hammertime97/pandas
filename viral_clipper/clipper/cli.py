@@ -90,6 +90,8 @@ def _add_clip_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--language", default=None)
     parser.add_argument("--transcript", dest="transcript_path", type=Path,
                         help="use an existing .srt/.vtt/.json instead of transcribing")
+    parser.add_argument("--fps", type=int, choices=range(15, 61), metavar="N",
+                        help="output frame rate (default: the platform preset's 30)")
     parser.add_argument("--no-normalize", action="store_true",
                         help="skip loudness normalisation")
     parser.add_argument("--ffmpeg-preset", default="veryfast")
@@ -119,6 +121,7 @@ def config_from_args(args: argparse.Namespace) -> ClipperConfig:
         whisper_model=args.whisper_model,
         language=args.language,
         transcript_path=args.transcript_path,
+        fps=args.fps,
         normalize_audio=not args.no_normalize,
         ffmpeg_preset=args.ffmpeg_preset,
         dry_run=args.dry_run,
