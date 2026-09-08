@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viral Clipper</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #141824;
+    --panel-2: #1b2030;
+    --line: #262c3d;
+    --text: #e8ecf5;
+    --muted: #8b93a7;
+    --accent: #ffe14d;
+    --accent-2: #6c8cff;
+    --good: #4ade80;
+    --bad: #f87171;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  a { color: var(--accent-2); }
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: -0.2px; }
+  header h1 span { color: var(--accent); }
+  .health { margin-left: auto; display: flex; gap: 12px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .health b { color: var(--text); font-weight: 600; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-right: 5px; }
+  .dot.on { background: var(--good); }
+
+  main { display: grid; grid-template-columns: 380px 1fr; gap: 20px; padding: 20px 24px 60px; align-items: start; }
+  @media (max-width: 950px) { main { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 14px; }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; }
+  input[type=text], input[type=number], select {
+    width: 100%; padding: 9px 11px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 14px;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--text); }
+  .check input { accent-color: var(--accent-2); }
+  button {
+    font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 10px 16px;
+    background: var(--accent); color: #12151d; cursor: pointer;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+  button.ghost:hover:not(:disabled) { color: var(--text); }
+  .actions { display: flex; gap: 10px; margin-top: 18px; }
+  .actions button { flex: 1; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 16px; user-select: none; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .error { color: var(--bad); font-size: 13px; margin-top: 10px; white-space: pre-wrap; }
+
+  .jobs { display: flex; flex-direction: column; gap: 8px; }
+  .job {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px;
+    background: var(--panel-2); border: 1px solid transparent; cursor: pointer; font-size: 13px;
+  }
+  .job:hover { border-color: var(--line); }
+  .job.active { border-color: var(--accent-2); }
+  .job .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 11px; padding: 2px 7px; border-radius: 20px; background: var(--line); color: var(--muted); }
+  .badge.done { background: rgba(74,222,128,.15); color: var(--good); }
+  .badge.error { background: rgba(248,113,113,.15); color: var(--bad); }
+  .badge.running { background: rgba(108,140,255,.18); color: var(--accent-2); }
+
+  .bar { height: 6px; border-radius: 5px; background: var(--panel-2); overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width .3s; }
+
+  .status { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .status .bar { flex: 1; }
+  .status .pct { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; min-width: 42px; text-align: right; }
+
+  .clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+  .clip { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; }
+  .clip video, .clip .poster { width: 100%; aspect-ratio: 9/16; background: #000; display: block; object-fit: contain; }
+  .clip .body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .clip .top { display: flex; align-items: baseline; gap: 10px; }
+  .score { font-size: 22px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .score small { font-size: 11px; color: var(--muted); font-weight: 400; }
+  .time { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .title { font-weight: 600; line-height: 1.35; }
+  .signals { display: flex; flex-direction: column; gap: 5px; }
+  .signal { display: grid; grid-template-columns: 96px 1fr 32px; gap: 8px; align-items: center; font-size: 11px; color: var(--muted); }
+  .signal .bar { height: 5px; }
+  .tags { font-size: 12px; color: var(--accent-2); word-break: break-word; }
+  .transcript { font-size: 12px; color: var(--muted); max-height: 88px; overflow-y: auto; line-height: 1.5; }
+  .clip .buttons { display: flex; gap: 8px; }
+  .clip .buttons button, .clip .buttons a {
+    flex: 1; text-align: center; font-size: 12px; padding: 7px 8px; border-radius: 7px;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    text-decoration: none; cursor: pointer; font-weight: 500;
+  }
+  .clip .buttons button:hover, .clip .buttons a:hover { border-color: var(--accent-2); }
+  .empty { color: var(--muted); text-align: center; padding: 50px 20px; font-size: 14px; }
+  .stats { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+  .log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Viral <span>Clipper</span></h1>
+  <div class="health" id="health"></div>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <h2>New job</h2>
+      <label for="source">Video URL or local path</label>
+      <input type="text" id="source" placeholder="https://www.youtube.com/watch?v=... or /path/to/talk.mp4">
+      <div class="hint">
+        Or <a href="#" id="pick">upload a file</a> from this machine.
+        <input type="file" id="file" accept="video/*,audio/*" hidden>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="platform">Platform</label>
+          <select id="platform"></select>
+        </div>
+        <div>
+          <label for="maxClips">Clips</label>
+          <input type="number" id="maxClips" value="5" min="1" max="25">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="layout">Framing</label>
+          <select id="layout"></select>
+        </div>
+        <div>
+          <label for="captionStyle">Caption style</label>
+          <select id="captionStyle"></select>
+        </div>
+      </div>
+
+      <details>
+        <summary>Advanced</summary>
+        <div class="row">
+          <div>
+            <label for="minDuration">Min seconds</label>
+            <input type="number" id="minDuration" placeholder="preset">
+          </div>
+          <div>
+            <label for="maxDuration">Max seconds</label>
+            <input type="number" id="maxDuration" placeholder="preset">
+          </div>
+        </div>
+        <label for="whisperModel">Whisper model</label>
+        <select id="whisperModel">
+          <option>tiny</option><option>base</option>
+          <option selected>small</option><option>medium</option><option>large-v3</option>
+        </select>
+        <label class="check"><input type="checkbox" id="subtitles" checked> Burn in captions</label>
+        <label class="check"><input type="checkbox" id="uppercase" checked> Uppercase captions</label>
+        <label class="check"><input type="checkbox" id="useLlm"> Re-rank with Claude</label>
+        <label class="check"><input type="checkbox" id="dryRun"> Dry run (score only, no render)</label>
+      </details>
+
+      <div class="actions">
+        <button id="start">Find the moments</button>
+      </div>
+      <div class="error" id="formError" hidden></div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h2>Jobs</h2>
+      <div class="jobs" id="jobs"><div class="empty" style="padding:14px">Nothing yet.</div></div>
+    </div>
+  </section>
+
+  <section id="detail">
+    <div class="card"><div class="empty">Submit a video to get started.</div></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const api = async (path, options) => {
+  const response = await fetch(path, options);
+  const body = response.status === 204 ? null : await response.json().catch(() => null);
+  if (!response.ok) throw new Error((body && (body.detail || body.error)) || response.statusText);
+  return body;
+};
+const fmtTime = (s) => {
+  s = Math.max(0, Math.round(s));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
+  { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let selectedJob = null;
+let poller = null;
+
+async function loadHealth() {
+  try {
+    const h = await api("/api/health");
+    const item = (on, label) => `<span><i class="dot ${on ? "on" : ""}"></i>${label}</span>`;
+    $("health").innerHTML =
+      item(h.ffmpeg, "ffmpeg") + item(h.yt_dlp, "yt-dlp") +
+      item(h.whisper, "whisper") + item(h.opencv, "face tracking") +
+      item(h.anthropic, "claude");
+  } catch (e) { $("health").textContent = "status unavailable"; }
+}
+
+async function loadOptions() {
+  const opts = await api("/api/options");
+  $("platform").innerHTML = opts.platforms.map((p) =>
+    `<option value="${esc(p.name)}">${esc(p.name)} · ${p.width}×${p.height}</option>`).join("");
+  const layoutLabels = {
+    auto: "auto — follow the subject", center: "center — static crop",
+    blur: "blur — blurred backdrop", fit: "fit — black bars",
+  };
+  $("layout").innerHTML = opts.layouts.map((l) =>
+    `<option value="${esc(l)}">${esc(layoutLabels[l] || l)}</option>`).join("");
+  $("captionStyle").innerHTML = opts.caption_styles.map((s) =>
+    `<option value="${esc(s)}"${s === "punch" ? " selected" : ""}>${esc(s)}</option>`).join("");
+}
+
+function readForm() {
+  const num = (id) => { const v = $(id).value.trim(); return v === "" ? null : Number(v); };
+  return {
+    source: $("source").value.trim(),
+    platform: $("platform").value,
+    max_clips: Number($("maxClips").value) || 5,
+    min_duration: num("minDuration"),
+    max_duration: num("maxDuration"),
+    layout: $("layout").value,
+    caption_style: $("captionStyle").value,
+    burn_subtitles: $("subtitles").checked,
+    uppercase_captions: $("uppercase").checked,
+    whisper_model: $("whisperModel").value,
+    use_llm: $("useLlm").checked,
+    dry_run: $("dryRun").checked,
+  };
+}
+
+async function submitJob() {
+  const payload = readForm();
+  $("formError").hidden = true;
+  if (!payload.source) { showError("Enter a URL or a file path first."); return; }
+  $("start").disabled = true;
+  try {
+    const job = await api("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    selectedJob = job.job_id;
+    await refresh();
+  } catch (e) { showError(e.message); }
+  finally { $("start").disabled = false; }
+}
+
+function showError(message) {
+  $("formError").textContent = message;
+  $("formError").hidden = false;
+}
+
+async function uploadFile(file) {
+  const form = new FormData();
+  form.append("file", file);
+  $("start").disabled = true;
+  showError(`Uploading ${file.name}…`);
+  try {
+    const res = await api("/api/upload", { method: "POST", body: form });
+    $("source").value = res.path;
+    $("formError").hidden = true;
+  } catch (e) { showError(e.message); }
+  finally { $("start").disabled = false; }
+}
+
+async function refresh() {
+  let jobs = [];
+  try { jobs = (await api("/api/jobs")).jobs; } catch (e) { return; }
+
+  $("jobs").innerHTML = jobs.length ? jobs.map((j) => `
+    <div class="job ${j.job_id === selectedJob ? "active" : ""}" data-id="${esc(j.job_id)}">
+      <span class="name" title="${esc(j.name)}">${esc(j.name)}</span>
+      <span class="badge ${esc(j.status)}">${esc(j.status)}</span>
+    </div>`).join("") : `<div class="empty" style="padding:14px">Nothing yet.</div>`;
+
+  for (const el of document.querySelectorAll(".job")) {
+    el.onclick = () => { selectedJob = el.dataset.id; refresh(); };
+  }
+  if (!selectedJob && jobs.length) selectedJob = jobs[0].job_id;
+  if (selectedJob) await renderDetail(selectedJob);
+
+  const busy = jobs.some((j) => j.status === "running" || j.status === "queued");
+  clearTimeout(poller);
+  if (busy) poller = setTimeout(refresh, 1200);
+}
+
+async function renderDetail(jobId) {
+  let job;
+  try { job = await api(`/api/jobs/${jobId}`); }
+  catch (e) { selectedJob = null; return; }
+
+  const pct = Math.round((job.progress || 0) * 100);
+  const stats = job.stats
+    ? `${job.stats.candidates} candidate windows scanned · kept ${job.stats.selected} ·
+       transcript from ${esc(job.stats.transcript_source)} ·
+       ${job.stats.elapsed_seconds}s to build`
+    : "";
+
+  let head = `
+    <div class="card">
+      <h2>${esc(job.name)}</h2>
+      <div class="status">
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        <span class="pct">${pct}%</span>
+        <span class="badge ${esc(job.status)}">${esc(job.status)}</span>
+        <button class="ghost" id="forget" style="padding:6px 12px">Remove</button>
+      </div>
+      <div class="stats">${esc(job.message)}${stats ? " — " + stats : ""}</div>
+      ${job.error ? `<div class="error">${esc(job.error)}</div>` : ""}
+      ${job.status === "running" ? `<div class="log">${esc((job.log || []).join("\n"))}</div>` : ""}
+    </div>`;
+
+  const clips = job.clips || [];
+  const body = clips.length
+    ? `<div class="clips" style="margin-top:18px">${clips.map((c) => clipCard(job, c)).join("")}</div>`
+    : (job.status === "done"
+        ? `<div class="card" style="margin-top:18px"><div class="empty">No clips were produced.</div></div>`
+        : "");
+
+  $("detail").innerHTML = head + body;
+  $("forget").onclick = async () => {
+    try { await api(`/api/jobs/${jobId}`, { method: "DELETE" }); selectedJob = null; refresh(); }
+    catch (e) { alert(e.message); }
+  };
+  for (const button of document.querySelectorAll("[data-copy]")) {
+    button.onclick = async () => {
+      const text = decodeURIComponent(button.dataset.copy);
+      try {
+        await navigator.clipboard.writeText(text);
+        const original = button.textContent;
+        button.textContent = "Copied";
+        setTimeout(() => { button.textContent = original; }, 1200);
+      } catch (e) { alert("Clipboard blocked. Caption:\n\n" + text); }
+    };
+  }
+}
+
+function clipCard(job, clip) {
+  const signals = clip.breakdown && clip.breakdown.signals ? clip.breakdown.signals : {};
+  const weights = (clip.breakdown && clip.breakdown.weights) || {};
+  const top = Object.keys(signals)
+    .filter((k) => (weights[k] || 0) > 0)
+    .sort((a, b) => (signals[b] * (weights[b] || 0)) - (signals[a] * (weights[a] || 0)))
+    .slice(0, 5);
+  const bars = top.map((name) => `
+    <div class="signal">
+      <span>${esc(name.replace(/_/g, " "))}</span>
+      <div class="bar"><i style="width:${Math.round(signals[name] * 100)}%"></i></div>
+      <span>${signals[name].toFixed(2)}</span>
+    </div>`).join("");
+
+  const base = `/api/jobs/${encodeURIComponent(job.job_id)}/clips/${clip.index}`;
+  const media = clip.video_path
+    ? `<video controls preload="metadata" playsinline poster="${base}/thumbnail" src="${base}/video"></video>`
+    : `<div class="poster"></div>`;
+  const caption = encodeURIComponent(clip.copy ? clip.copy.caption : "");
+
+  return `
+    <article class="clip">
+      ${media}
+      <div class="body">
+        <div class="top">
+          <span class="score">${Math.round(clip.score)}<small>/100</small></span>
+          <span class="time">${fmtTime(clip.start)}–${fmtTime(clip.end)} · ${Math.round(clip.duration)}s</span>
+        </div>
+        <div class="title">${esc(clip.copy ? clip.copy.title : clip.hook)}</div>
+        <div class="signals">${bars}</div>
+        <div class="tags">${esc((clip.copy && clip.copy.hashtags || []).join(" "))}</div>
+        <details><summary>Transcript</summary><div class="transcript">${esc(clip.transcript)}</div></details>
+        <div class="buttons">
+          <button data-copy="${caption}">Copy caption</button>
+          ${clip.video_path ? `<a href="${base}/video" download>Download</a>` : ""}
+        </div>
+      </div>
+    </article>`;
+}
+
+$("start").onclick = submitJob;
+$("pick").onclick = (e) => { e.preventDefault(); $("file").click(); };
+$("file").onchange = (e) => { if (e.target.files[0]) uploadFile(e.target.files[0]); };
+$("source").addEventListener("keydown", (e) => { if (e.key === "Enter") submitJob(); });
+
+loadHealth();
+loadOptions().then(refresh);
+setInterval(() => { if (!poller) refresh(); }, 8000);
+</script>
+</body>
+</html>

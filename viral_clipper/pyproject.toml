@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "viral-clipper"
+version = "0.1.0"
+description = "Turn long viral videos into vertical short-form clips for TikTok, Reels and Shorts."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+# Everything needed for the full automatic pipeline.
+full = [
+    "numpy>=1.23",
+    "yt-dlp>=2024.1.0",
+    "faster-whisper>=1.0.0",
+    "opencv-python-headless>=4.8",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+]
+# Just the ingest + render half (works when the source already has captions).
+render = ["numpy>=1.23", "yt-dlp>=2024.1.0"]
+transcribe = ["faster-whisper>=1.0.0"]
+track = ["numpy>=1.23", "opencv-python-headless>=4.8"]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "python-multipart>=0.0.9"]
+llm = ["anthropic>=0.40"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+clipper = "clipper.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["clipper*"]
+
+[tool.setuptools.package-data]
+"clipper.server" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
