@@ -1,5 +1,7 @@
 """Source resolution, and the YouTube bot-check retry path."""
 
+from pathlib import Path
+
 import pytest
 
 from clipper import ingest
@@ -208,3 +210,80 @@ def test_cli_download_forwards_the_ffmpeg_location(monkeypatch):
     args = captured["args"]
     assert "--ffmpeg-location" in args
     assert args[args.index("--ffmpeg-location") + 1] == "/opt/ff/ffmpeg"
+
+
+# ---------------------------------------------------------------------------
+# Unmerged download fragments
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("1693eb8db2.f140.m4a", True),    # YouTube audio-only format
+        ("1693eb8db2.f616.mp4", True),    # video-only format
+        ("video.f251.webm", True),
+        ("1693eb8db2.mp4", False),        # the merged result
+        ("my.video.mp4", False),
+        ("talk.f.mp4", False),            # no format number
+    ],
+)
+def test_format_fragments_are_recognised(name, expected):
+    assert ingest.is_format_fragment(Path(name)) is expected
+
+
+def _touch(folder, *names):
+    for name in names:
+        (folder / name).write_bytes(b"")
+
+
+def test_a_merged_download_wins_over_its_fragments(tmp_path):
+    """`.f140.m4a` sorts before `.mp4`, and is audio only — it must not win."""
+    _touch(
+        tmp_path,
+        "1693eb8db2.f140.m4a",
+        "1693eb8db2.f616.mp4",
+        "1693eb8db2.mp4",
+        "1693eb8db2.title.txt",
+        "1693eb8db2.en.vtt",
+    )
+    found = ingest._existing_download(tmp_path, "1693eb8db2")
+    assert found is not None and found.name == "1693eb8db2.mp4"
+
+
+def test_leftover_fragments_alone_do_not_count_as_a_download(tmp_path):
+    """A failed run leaves fragments; reusing them would poison every retry."""
+    _touch(tmp_path, "1693eb8db2.f140.m4a", "1693eb8db2.f616.mp4")
+    assert ingest._existing_download(tmp_path, "1693eb8db2") is None
+
+
+def test_partial_and_bookkeeping_files_are_ignored(tmp_path):
+    _touch(tmp_path, "abc.part", "abc.ytdl", "abc.title.txt", "abc.en.srt")
+    assert ingest._existing_download(tmp_path, "abc") is None
+
+
+def test_a_video_container_is_preferred_over_audio(tmp_path):
+    _touch(tmp_path, "abc.m4a", "abc.mkv")
+    found = ingest._existing_download(tmp_path, "abc")
+    assert found is not None and found.suffix == ".mkv"
+
+
+def test_an_audio_only_source_is_rejected_with_a_useful_message(tmp_path, monkeypatch):
+    """The pipeline needs a video stream; say so, and say how to recover."""
+    from clipper.models import MediaInfo
+
+    video = tmp_path / "audio-only.m4a"
+    video.write_bytes(b"")
+
+    class FakeFFmpeg:
+        def probe(self, path):
+            return MediaInfo(
+                path=str(path), duration=120.0, width=0, height=0,
+                has_audio=True, has_video=False,
+            )
+
+    with pytest.raises(IngestError) as caught:
+        ingest.resolve_source(str(video), tmp_path, FakeFFmpeg())
+    message = str(caught.value)
+    assert "no video track" in message
+    assert "downloads folder" in message, "the error should say how to recover"

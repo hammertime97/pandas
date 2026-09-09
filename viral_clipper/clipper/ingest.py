@@ -44,6 +44,19 @@ DEFAULT_FORMAT = format_for_height(1080)
 
 _CAPTION_SUFFIXES = (".vtt", ".srt")
 
+#: Containers that can hold video. A finished download is one of these.
+_VIDEO_SUFFIXES = (".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".flv", ".ts")
+
+#: yt-dlp writes each chosen format to `<stem>.f<format id>.<ext>` and merges
+#: them into `<stem>.<ext>` afterwards. If the merge never happened — an
+#: interrupted run, or one where ffmpeg was missing — those per-format files
+#: are left behind, and `<stem>.f140.m4a` is audio only. Treating one as a
+#: finished download hands the pipeline a file with no video stream.
+_FORMAT_FRAGMENT_RE = re.compile(r"\.f\d+\.[^.]+$", re.IGNORECASE)
+
+#: Partial and bookkeeping files yt-dlp leaves in the download folder.
+_SCRATCH_SUFFIXES = (".part", ".ytdl", ".temp", ".tmp")
+
 #: YouTube challenges requests from data-centre IP ranges (Colab, most cloud
 #: VMs) with "Sign in to confirm you're not a bot". Different player clients
 #: are challenged differently, so a download that fails on one often succeeds
@@ -157,6 +170,13 @@ def resolve_source(
     if not media.info.has_audio:
         raise IngestError(
             f"{media.path} has no audio track; the clipper needs speech to find moments"
+        )
+    if not media.info.has_video:
+        raise IngestError(
+            f"{media.path} has no video track, only audio. If this came from a "
+            "download, an unmerged fragment was left behind by an earlier failed "
+            "run — delete the files in the workspace's downloads folder and try "
+            "again."
         )
     if progress:
         progress("source ready", 1.0)
@@ -296,14 +316,38 @@ def _download_with_fallbacks(
     raise IngestError(message) if last_error else IngestError(f"could not download {url}")
 
 
+def is_format_fragment(path: Path) -> bool:
+    """Is this one of yt-dlp's per-format files rather than the merged result?"""
+    return bool(_FORMAT_FRAGMENT_RE.search(path.name))
+
+
 def _existing_download(downloads: Path, stem: str) -> Optional[Path]:
+    """The finished download for ``stem``, or ``None`` if there is not one yet.
+
+    Only a merged file counts. Alphabetical order would otherwise pick
+    `<stem>.f140.m4a` — audio with no video — ahead of `<stem>.mp4`, and a
+    leftover fragment from a failed run would be reused forever.
+    """
+    candidates = []
     for candidate in sorted(downloads.glob(f"{glob_escape(stem)}.*")):
-        if candidate.suffix.lower() in _CAPTION_SUFFIXES:
+        suffix = candidate.suffix.lower()
+        if suffix in _CAPTION_SUFFIXES or suffix in _SCRATCH_SUFFIXES:
             continue
-        if candidate.name.endswith(".title.txt") or candidate.suffix == ".part":
+        if candidate.name.endswith(".title.txt"):
             continue
-        return candidate
-    return None
+        if is_format_fragment(candidate):
+            log.debug("ignoring unmerged fragment %s", candidate.name)
+            continue
+        candidates.append(candidate)
+
+    if not candidates:
+        return None
+    # Prefer a video container; an audio-only merge target is still unusable
+    # here, but at least the error names the right file.
+    for candidate in candidates:
+        if candidate.suffix.lower() in _VIDEO_SUFFIXES:
+            return candidate
+    return candidates[0]
 
 
 def _read_cached_title(downloads: Path, stem: str) -> str:
