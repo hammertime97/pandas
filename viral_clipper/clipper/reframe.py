@@ -137,28 +137,67 @@ def _centroid(weights: Sequence[float]) -> Optional[float]:
     return (moment / total) / max(1, len(weights) - 1)
 
 
+def _load_face_cascade():
+    """Return a usable Haar cascade, or ``None``.
+
+    Being importable is not the same as being usable. Some environments —
+    Colab among them — ship a ``cv2`` that imports fine but whose native
+    extension never loaded, so the module exists with almost none of its
+    attributes. Everything here is therefore feature-checked rather than
+    assumed, and any failure just means we fall back to motion tracking.
+    """
+    try:
+        import cv2  # type: ignore
+    except Exception as exc:  # not only ImportError: broken builds raise others
+        log.debug("opencv unavailable: %s", exc)
+        return None
+
+    if not hasattr(cv2, "CascadeClassifier"):
+        log.info(
+            "opencv is installed but not working (no CascadeClassifier) — "
+            "using motion tracking instead"
+        )
+        return None
+
+    try:
+        haar_dir = getattr(getattr(cv2, "data", None), "haarcascades", "")
+        cascade = cv2.CascadeClassifier(haar_dir + "haarcascade_frontalface_default.xml")
+        if cascade.empty():
+            log.debug("opencv face cascade not found under %r", haar_dir)
+            return None
+        return cascade
+    except Exception as exc:
+        log.debug("could not load the opencv face cascade: %s", exc)
+        return None
+
+
 def _detect_faces_opencv(
     frames: Sequence[memoryview], width: int, height: int
 ) -> List[Optional[float]]:
-    """Per-frame face centre as a fraction of the width (``None`` when absent)."""
+    """Per-frame face centre as a fraction of the width (``None`` when absent).
+
+    Returns an empty list if face detection is unavailable for any reason, which
+    the caller reads as "fall back to motion tracking".
+    """
     try:
-        import cv2  # type: ignore
         import numpy as np  # type: ignore
     except ImportError:
         return []
 
-    cascade_path = getattr(cv2.data, "haarcascades", "") + "haarcascade_frontalface_default.xml"
-    cascade = cv2.CascadeClassifier(cascade_path)
-    if cascade.empty():
-        log.debug("opencv face cascade unavailable at %s", cascade_path)
+    cascade = _load_face_cascade()
+    if cascade is None:
         return []
 
     positions: List[Optional[float]] = []
     for frame in frames:
         image = np.frombuffer(bytes(frame), dtype=np.uint8).reshape(height, width)
-        faces = cascade.detectMultiScale(
-            image, scaleFactor=1.15, minNeighbors=5, minSize=(max(12, width // 20),) * 2
-        )
+        try:
+            faces = cascade.detectMultiScale(
+                image, scaleFactor=1.15, minNeighbors=5, minSize=(max(12, width // 20),) * 2
+            )
+        except Exception as exc:
+            log.debug("face detection failed mid-clip: %s", exc)
+            return []
         if len(faces) == 0:
             positions.append(None)
             continue
@@ -198,7 +237,12 @@ def estimate_subject_track(
     if not frames:
         return []
 
-    faces = _detect_faces_opencv(frames, analysis_width, analysis_height)
+    try:
+        faces = _detect_faces_opencv(frames, analysis_width, analysis_height)
+    except Exception as exc:
+        # Reframing is an enhancement; never let it fail a whole render.
+        log.warning("face tracking failed (%s) — falling back to motion tracking", exc)
+        faces = []
     if faces and sum(1 for f in faces if f is not None) >= max(2, len(faces) // 4):
         log.debug("tracking %d/%d frames by face", sum(f is not None for f in faces), len(faces))
         return faces

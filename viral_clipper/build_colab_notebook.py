@@ -118,19 +118,25 @@ if shutil.which("ffmpeg") is None:
     print("Installing ffmpeg…")
     sh("apt-get -qq update && apt-get -qq install -y ffmpeg")
 
-# OpenCV ships with Colab; it gives face-aware reframing when present.
+# OpenCV gives face-aware reframing. Importing it is not proof it works —
+# Colab sometimes ships a cv2 whose native extension never loaded — so check
+# for the attribute we actually call.
 try:
     import cv2
-    faces = True
-except ImportError:
+    faces = hasattr(cv2, "CascadeClassifier")
+except Exception:
     faces = False
 
-import torch
-gpu = torch.cuda.is_available() if 'torch' in sys.modules else False
+try:
+    import torch
+    gpu = torch.cuda.is_available()
+except Exception:
+    gpu = False
+
 print()
 print("ffmpeg          :", shutil.which("ffmpeg") or "MISSING")
 print("GPU             :", "yes — transcription will be fast" if gpu else "no  — CPU, slower but fine")
-print("Face tracking   :", "yes" if faces else "no (falls back to motion tracking)")
+print("Face tracking   :", "yes" if faces else "no — using motion tracking (works fine)")
 print("\nDone. Run Step 2.")
 """
 

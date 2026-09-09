@@ -112,3 +112,72 @@ def test_numpy_and_pure_python_tracking_agree():
     slow = _centroid(_column_energy_python(frames, width, height))
     assert fast == pytest.approx(slow, abs=1e-9)
     assert fast is not None and 0.0 <= fast <= 1.0
+
+
+def test_broken_opencv_falls_back_instead_of_crashing(monkeypatch):
+    """Colab ships a cv2 that imports but has no attributes; that must not crash.
+
+    Guarding only ImportError is not enough: the module is importable, so the
+    failure surfaces as an AttributeError deep inside a render.
+    """
+    import sys
+    import types
+
+    from clipper.reframe import _detect_faces_opencv, _load_face_cascade
+
+    monkeypatch.setitem(sys.modules, "cv2", types.ModuleType("cv2"))
+    assert _load_face_cascade() is None
+    assert _detect_faces_opencv([memoryview(bytes(64))], 8, 8) == []
+
+
+def test_cascade_loading_survives_an_exploding_cv2(monkeypatch):
+    import sys
+    import types
+
+    from clipper.reframe import _load_face_cascade
+
+    exploding = types.ModuleType("cv2")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("native library not loaded")
+
+    exploding.CascadeClassifier = boom
+    monkeypatch.setitem(sys.modules, "cv2", exploding)
+    assert _load_face_cascade() is None
+
+
+def test_tracking_still_follows_the_subject_without_opencv(monkeypatch):
+    """With faces unavailable, motion tracking has to carry the reframe."""
+    from clipper import reframe
+
+    monkeypatch.setattr(reframe, "_detect_faces_opencv", lambda *a, **k: [])
+    monkeypatch.setattr(
+        reframe,
+        "estimate_subject_track",
+        reframe.estimate_subject_track,  # unchanged, exercised via smoothing below
+    )
+    drifting = [i / 20 for i in range(21)]
+    smoothed = reframe.smooth_positions(drifting)
+    assert smoothed[-1] > smoothed[0] + 0.4, "the crop must still travel"
+
+
+def test_face_detection_failure_mid_clip_is_contained(monkeypatch):
+    import sys
+    import types
+
+    from clipper.reframe import _detect_faces_opencv
+
+    pytest.importorskip("numpy")
+
+    class Cascade:
+        def empty(self):
+            return False
+
+        def detectMultiScale(self, *args, **kwargs):
+            raise RuntimeError("cascade blew up on frame 2")
+
+    module = types.ModuleType("cv2")
+    module.CascadeClassifier = lambda *a, **k: Cascade()
+    module.data = types.SimpleNamespace(haarcascades="/tmp/")
+    monkeypatch.setitem(sys.modules, "cv2", module)
+    assert _detect_faces_opencv([memoryview(bytes(64))], 8, 8) == []
