@@ -99,8 +99,24 @@ def install():
     unpack()
     from clipper.ffmpeg import find_ffmpeg
 
-    if find_ffmpeg():
-        print("\\nffmpeg:", find_ffmpeg())
+    binary = find_ffmpeg()
+    working = False
+    if binary:
+        # Finding a path is not proof it runs; check before promising it works.
+        try:
+            probe = subprocess.run(
+                [binary, "-version"], capture_output=True, text=True, timeout=30
+            )
+            working = probe.returncode == 0
+        except Exception:
+            working = False
+
+    if working:
+        print("\\nffmpeg:", binary)
+        print("(yt-dlp is handed this path explicitly, so it does not need to be on PATH)")
+    elif binary:
+        print(f"\\nffmpeg was found at {binary} but would not run.")
+        print("Install a system one: winget install Gyan.FFmpeg")
     else:
         print(
             "\\nffmpeg was not found. Install it with one of:\\n"

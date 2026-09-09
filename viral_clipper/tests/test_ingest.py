@@ -126,3 +126,85 @@ def test_non_youtube_urls_are_not_rotated(monkeypatch):
 def test_missing_local_file_reports_clearly(tmp_path):
     with pytest.raises(IngestError, match="no such file"):
         ingest.resolve_source(str(tmp_path / "nope.mp4"), tmp_path)
+
+
+def test_ytdlp_accepts_a_pip_installed_ffmpeg_filename():
+    """imageio-ffmpeg names its binary oddly; yt-dlp still has to recognise it.
+
+    yt-dlp maps a path to a program by looking for "ffmpeg"/"ffprobe" *inside*
+    the filename, so `ffmpeg-win-x86_64-v7.0.2.exe` resolves correctly. If that
+    ever stops being true, passing the path would silently do nothing.
+    """
+    import os
+
+    for filename in (
+        "ffmpeg-win-x86_64-v7.0.2.exe",
+        "ffmpeg-linux-x86_64-v7.0.2",
+        "ffmpeg.exe",
+        "ffmpeg",
+    ):
+        basename = next((p for p in ("ffmpeg", "ffprobe") if p in filename), "ffmpeg")
+        assert basename == "ffmpeg"
+        assert basename in os.path.basename(filename)
+
+
+def test_download_hands_ytdlp_the_ffmpeg_we_resolved(monkeypatch, tmp_path):
+    """Without this, a pip-installed ffmpeg is invisible to yt-dlp."""
+    captured = {}
+
+    def fake_fallbacks(url, options, progress):
+        captured.update(options)
+        raise IngestError("stop here, the options are what we are checking")
+
+    monkeypatch.setattr(ingest, "find_ffmpeg", lambda: "/opt/ff/ffmpeg-v7.exe")
+    monkeypatch.setattr(ingest, "_download_with_fallbacks", fake_fallbacks)
+    with pytest.raises(IngestError):
+        ingest._download(
+            "https://youtu.be/abc", tmp_path,
+            progress=None, format_selector="best", cookies_file=None,
+        )
+    assert captured["ffmpeg_location"] == "/opt/ff/ffmpeg-v7.exe"
+
+
+def test_download_omits_the_option_when_there_is_no_ffmpeg(monkeypatch, tmp_path):
+    """Passing None would make yt-dlp warn about a location that does not exist."""
+    captured = {}
+
+    def fake_fallbacks(url, options, progress):
+        captured.update({"keys": set(options)})
+        raise IngestError("stop")
+
+    monkeypatch.setattr(ingest, "find_ffmpeg", lambda: None)
+    monkeypatch.setattr(ingest, "_download_with_fallbacks", fake_fallbacks)
+    with pytest.raises(IngestError):
+        ingest._download(
+            "https://youtu.be/abc", tmp_path,
+            progress=None, format_selector="best", cookies_file=None,
+        )
+    assert "ffmpeg_location" not in captured["keys"]
+
+
+def test_cli_download_forwards_the_ffmpeg_location(monkeypatch):
+    """The subprocess fallback needs the same treatment as the module path."""
+    captured = {}
+
+    class Result:
+        returncode = 1
+        stdout = ""
+        stderr = "boom"
+
+    def fake_run(args, **kwargs):
+        captured["args"] = args
+        return Result()
+
+    monkeypatch.setattr(ingest.subprocess, "run", fake_run)
+    monkeypatch.setattr(ingest.shutil, "which", lambda name: "/usr/bin/yt-dlp")
+    with pytest.raises(IngestError):
+        ingest._download_with_cli(
+            "https://youtu.be/abc",
+            {"format": "best", "outtmpl": "x", "ffmpeg_location": "/opt/ff/ffmpeg"},
+            None,
+        )
+    args = captured["args"]
+    assert "--ffmpeg-location" in args
+    assert args[args.index("--ffmpeg-location") + 1] == "/opt/ff/ffmpeg"

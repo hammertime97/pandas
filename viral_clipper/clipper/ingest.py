@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from clipper.errors import DependencyMissing, IngestError
-from clipper.ffmpeg import FFmpeg
+from clipper.ffmpeg import FFmpeg, find_ffmpeg
 from clipper.models import MediaInfo
 from clipper.utils import ensure_dir, log, short_hash, slugify
 
@@ -209,6 +209,12 @@ def _download(
 
     options: Dict[str, Any] = {
         "format": format_selector,
+        # yt-dlp shells out to ffmpeg to merge separate video and audio
+        # streams, and finds it on PATH. A pip-installed ffmpeg (imageio-ffmpeg)
+        # is not on PATH, so hand over the exact binary we resolved ourselves —
+        # otherwise the download dies with "ffmpeg is not installed" on a
+        # machine that demonstrably has one.
+        "ffmpeg_location": find_ffmpeg(),
         "outtmpl": target_template,
         "merge_output_format": "mp4",
         "writesubtitles": True,
@@ -221,6 +227,8 @@ def _download(
         "retries": 3,
         "concurrent_fragment_downloads": 4,
     }
+    if not options["ffmpeg_location"]:
+        options.pop("ffmpeg_location")
     if cookies_file:
         options["cookiefile"] = str(cookies_file)
 
@@ -368,6 +376,8 @@ def _download_with_cli(
     ]
     if options.get("cookiefile"):
         args += ["--cookies", str(options["cookiefile"])]
+    if options.get("ffmpeg_location"):
+        args += ["--ffmpeg-location", str(options["ffmpeg_location"])]
     clients = options.get("extractor_args", {}).get("youtube", {}).get("player_client")
     if clients:
         args += ["--extractor-args", f"youtube:player_client={','.join(clients)}"]
