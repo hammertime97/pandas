@@ -39,7 +39,10 @@ _CAPTION_SUFFIXES = (".vtt", ".srt")
 #: are challenged differently, so a download that fails on one often succeeds
 #: on another. These are tried in order before giving up. Which clients work
 #: shifts over time as YouTube changes; cookies remain the reliable answer.
-YOUTUBE_CLIENTS = ("default", "android_vr", "tv", "ios", "web_safari", "mweb")
+YOUTUBE_CLIENTS = (
+    "default", "android_vr", "tv", "tv_simply", "ios",
+    "visionos", "web_safari", "web_embedded", "mweb",
+)
 
 _BOT_CHECK_MARKERS = (
     "sign in to confirm",

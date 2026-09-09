@@ -169,6 +169,48 @@ print("Platforms:", ", ".join(sorted(PRESETS)))
 print("\nRun Step 3.")
 '''
 
+UPLOADER = r'''
+#@title Upload a cookies.txt or a video file (only if YouTube blocks you) { display-mode: "form" }
+#@markdown Click **Choose Files** below. Two kinds of file are understood:
+#@markdown
+#@markdown * **`cookies.txt`** — saved to `/content/cookies.txt`, and Step 3 picks it up
+#@markdown   on its own. Get one with the *Get cookies.txt LOCALLY* Chrome extension:
+#@markdown   install it, open youtube.com while signed in, click the extension, Export.
+#@markdown * **a video** (`.mp4`, `.mov`, `.mkv`, `.webm`) — the path is printed; paste it
+#@markdown   into `UPLOADED_FILE` in Step 3.
+#@markdown
+#@markdown Large videos upload slowly through the browser. If yours is over ~200 MB,
+#@markdown the cookies route is much quicker.
+
+import shutil
+from pathlib import Path
+
+try:
+    from google.colab import files
+except ImportError:
+    raise SystemExit("This cell only works inside Google Colab.")
+
+VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".mp3", ".wav", ".m4a"}
+
+for name in files.upload():
+    source = Path(name)
+    if source.suffix.lower() == ".txt" or "cookie" in source.stem.lower():
+        shutil.move(str(source), "/content/cookies.txt")
+        size = Path("/content/cookies.txt").stat().st_size
+        if size < 100:
+            print(f"⚠️  {name} is only {size} bytes — that looks empty. Re-export it.")
+        else:
+            print(f"✅ Cookies saved ({size / 1024:.0f} KB). "
+                  "Just run Step 3 — it will find them automatically.")
+    elif source.suffix.lower() in VIDEO_SUFFIXES:
+        target = Path("/content") / source.name
+        if source.resolve() != target.resolve():
+            shutil.move(str(source), target)
+        print(f"✅ Video saved. Paste this into UPLOADED_FILE in Step 3:\n   {target}")
+    else:
+        print(f"⚠️  Not sure what to do with {name} — expected cookies.txt or a video.")
+'''
+
 RUN = r'''
 #@title Step 3 · Your video → clips { display-mode: "form", run: "auto" }
 
@@ -216,6 +258,8 @@ if source.startswith("http") and "dQw4w9WgXcQ" in source:
     print("⚠️  That is still the placeholder link — replace it with your own video.\n")
 
 cookies = COOKIES_FILE.strip()
+if not cookies and Path("/content/cookies.txt").exists():
+    cookies = "/content/cookies.txt"      # dropped in by the uploader cell
 if cookies and not Path(cookies).exists():
     raise SystemExit(f"No cookies file at {cookies}. Upload it, or clear the field.")
 if cookies:
@@ -276,9 +320,17 @@ YouTube challenges requests coming from Google's own data-centre IPs — which i
 Colab runs on — with *"Sign in to confirm you're not a bot"*. A link that downloads
 fine on your laptop can therefore fail here.
 
-The clipper retries several YouTube player clients automatically, which clears the
-challenge much of the time. When it does not, Step 3 has two fields that always work:
-`UPLOADED_FILE` (upload the video yourself) and `COOKIES_FILE` (use your own cookies).
+The clipper retries nine YouTube player clients automatically, which clears the
+challenge much of the time. When it does not — you will see every retry fail with the
+same "not a bot" message — **cookies are the fix**, and the cell below makes that one
+click:
+
+1. Install the *Get cookies.txt LOCALLY* extension in Chrome
+2. Open youtube.com while signed in, click the extension, **Export**
+3. Run the cell below and upload the file it saved
+4. Run Step 3 again — it finds the cookies on its own
+
+Uploading the video itself always works too, and the same cell accepts one.
 
 This is a YouTube restriction rather than something the clipper can fix outright.
 """
@@ -437,6 +489,7 @@ def build_notebook() -> Dict[str, Any]:
             code(SETUP, cellView="form"),
             code(UNPACK_TEMPLATE.format(blob=blob_literal), cellView="form"),
             markdown(DOWNLOAD_NOTE),
+            code(UPLOADER, cellView="form"),
             code(RUN, cellView="form"),
             code(PREVIEW, cellView="form"),
             code(CAPTIONS, cellView="form"),
