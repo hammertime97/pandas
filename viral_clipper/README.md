@@ -13,10 +13,17 @@ clipper clip https://www.youtube.com/watch?v=... --platform tiktok --max-clips 1
 clipper serve                      # same thing, with a web UI on :8000
 ```
 
+**Two single-file editions**, both generated from this package with nothing to clone:
+`Viral_Clipper_Colab.ipynb` (upload to Google Colab) and `viral_clipper.py`
+(`python viral_clipper.py --install`, then `python viral_clipper.py "<url>" -n 10`).
+Prefer the local script when clipping from YouTube: it downloads from your own IP,
+which YouTube does not challenge the way it challenges cloud VMs.
+
 **No install? Use the notebook.** `Viral_Clipper_Colab.ipynb` is a single self-contained
 file — open it in Google Colab, paste a link, run the cells. The whole tool is embedded
 in it, so there is nothing to clone and nothing else to download. Regenerate it after
-changing the package with `python build_colab_notebook.py`.
+changing the package with `python build_colab_notebook.py` (and
+`python build_local_script.py` for the local runner).
 
 ---
 

@@ -90,3 +90,75 @@ def test_falls_back_to_the_caption_sidecar(sample_source, tmp_path):
     transcript = transcribe(media, config, use_cache=False)
     assert transcript.words
     assert transcript.source.startswith(("captions:", "faster-whisper", "whisper"))
+
+
+def test_a_backend_that_fails_with_a_network_error_falls_through(monkeypatch, tmp_path):
+    """A speech model that cannot reach its model host must not end the job.
+
+    faster-whisper downloads weights on first use; behind a proxy or offline
+    that surfaces as an httpx/OSError, not a TranscriptionError.
+    """
+    import clipper.transcribe as module
+
+    def unreachable(*args, **kwargs):
+        raise OSError("403 Forbidden while fetching the model")
+
+    monkeypatch.setattr(module, "transcribe_with_faster_whisper", unreachable)
+    monkeypatch.setattr(module, "transcribe_with_openai_whisper", unreachable)
+
+    subtitles = tmp_path / "talk.en.srt"
+    subtitles.write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\nthe captions still work\n", encoding="utf-8"
+    )
+
+    class FakeMedia:
+        path = tmp_path / "talk.wav"
+        caption_files = [subtitles]
+
+        class info:
+            duration = 10.0
+
+    FakeMedia.path.write_bytes(b"")
+    monkeypatch.setattr(
+        module.FFmpeg, "extract_audio", lambda self, source, dest, **kw: dest
+    )
+    (tmp_path / "ws" / "audio").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "ws" / "audio" / "talk.wav").write_bytes(b"")
+
+    config = ClipperConfig(workspace=tmp_path / "ws")
+    transcript = module.transcribe(FakeMedia(), config, use_cache=False)
+    assert transcript.text == "the captions still work"
+    assert transcript.source.startswith("captions:")
+
+
+def test_every_backend_failing_reports_all_of_them(monkeypatch, tmp_path):
+    import clipper.transcribe as module
+
+    monkeypatch.setattr(
+        module, "transcribe_with_faster_whisper",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("no model host")),
+    )
+    monkeypatch.setattr(
+        module, "transcribe_with_openai_whisper",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no CUDA")),
+    )
+
+    class FakeMedia:
+        path = tmp_path / "talk.wav"
+        caption_files = []
+
+        class info:
+            duration = 10.0
+
+    FakeMedia.path.write_bytes(b"")
+    monkeypatch.setattr(
+        module.FFmpeg, "extract_audio", lambda self, source, dest, **kw: dest
+    )
+    (tmp_path / "ws2" / "audio").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "ws2" / "audio" / "talk.wav").write_bytes(b"")
+
+    with pytest.raises(TranscriptionError) as caught:
+        module.transcribe(FakeMedia(), ClipperConfig(workspace=tmp_path / "ws2"), use_cache=False)
+    message = str(caught.value)
+    assert "no model host" in message and "no CUDA" in message
+    assert "--transcript" in message, "the error should say how to get unstuck"

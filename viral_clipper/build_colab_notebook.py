@@ -30,14 +30,19 @@ EXCLUDE = {"clipper/server", "clipper/cli.py", "clipper/__main__.py"}
 PACKAGE_MARKER = "PACKAGE_BLOB"
 
 
-def should_include(path: Path) -> bool:
+def should_include(path: Path, exclude=None) -> bool:
     relative = path.relative_to(ROOT).as_posix()
-    return not any(relative == e or relative.startswith(e + "/") for e in EXCLUDE)
+    excluded = EXCLUDE if exclude is None else exclude
+    return not any(relative == e or relative.startswith(e + "/") for e in excluded)
 
 
-def build_blob() -> str:
-    """Pack the package into a deterministic base64 tar.gz string."""
-    files = sorted(p for p in PACKAGE.rglob("*.py") if should_include(p))
+def build_blob(exclude=None) -> str:
+    """Pack the package into a deterministic base64 tar.gz string.
+
+    ``exclude`` defaults to :data:`EXCLUDE` (what the notebook leaves out); the
+    local runner passes a smaller set because it needs the CLI.
+    """
+    files = sorted(p for p in PACKAGE.rglob("*.py") if should_include(p, exclude))
     if not files:
         raise SystemExit("no package files found")
 

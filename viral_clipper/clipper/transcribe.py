@@ -208,6 +208,11 @@ def transcribe(
     failures: List[str] = []
     transcript: Optional[Transcript] = None
 
+    # Each backend is tried in turn, and *any* failure moves on to the next.
+    # Catching only TranscriptionError is not enough: a speech model can fail
+    # by not reaching its model host, running out of VRAM, or hitting a bad
+    # CUDA install, none of which should end a job that has a usable caption
+    # file sitting right there.
     for attempt in (
         lambda: transcribe_with_faster_whisper(
             audio_path,
@@ -228,6 +233,10 @@ def transcribe(
             break
         except TranscriptionError as exc:
             failures.append(str(exc))
+            continue
+        except Exception as exc:  # noqa: BLE001 - deliberate: try the next backend
+            failures.append(f"{type(exc).__name__}: {exc}")
+            log.warning("transcription backend failed (%s), trying the next", exc)
             continue
 
     if transcript is None:
