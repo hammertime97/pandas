@@ -34,6 +34,45 @@ DEFAULT_FORMAT = (
 
 _CAPTION_SUFFIXES = (".vtt", ".srt")
 
+#: YouTube challenges requests from data-centre IP ranges (Colab, most cloud
+#: VMs) with "Sign in to confirm you're not a bot". Different player clients
+#: are challenged differently, so a download that fails on one often succeeds
+#: on another. These are tried in order before giving up. Which clients work
+#: shifts over time as YouTube changes; cookies remain the reliable answer.
+YOUTUBE_CLIENTS = ("default", "android_vr", "tv", "ios", "web_safari", "mweb")
+
+_BOT_CHECK_MARKERS = (
+    "sign in to confirm",
+    "confirm you're not a bot",
+    "confirm youre not a bot",
+    "not a bot",
+    "cookies-from-browser",
+    "failed to extract any player response",
+    "please sign in",
+)
+
+BOT_CHECK_HELP = (
+    "YouTube blocked this download. It challenges requests from cloud IP "
+    "ranges (Colab, most servers) even when the same link works in your "
+    "browser. Two ways around it:\n"
+    "  1. Download the video yourself and pass the local file instead.\n"
+    "  2. Export your YouTube cookies (a 'Get cookies.txt' browser extension), "
+    "then pass that file as cookies_file / COOKIES_FILE."
+)
+
+
+def looks_like_bot_check(message: str) -> bool:
+    """Is this yt-dlp failure YouTube's anti-bot challenge?"""
+    lowered = str(message).lower()
+    return any(marker in lowered for marker in _BOT_CHECK_MARKERS)
+
+
+def is_youtube(url: str) -> bool:
+    return any(
+        host in url.lower()
+        for host in ("youtube.com", "youtu.be", "youtube-nocookie.com")
+    )
+
 
 @dataclass
 class SourceMedia:
@@ -172,9 +211,7 @@ def _download(
     if cookies_file:
         options["cookiefile"] = str(cookies_file)
 
-    info = _download_with_module(url, options, progress)
-    if info is None:
-        info = _download_with_cli(url, options, progress)
+    info = _download_with_fallbacks(url, options, progress)
 
     path = _existing_download(downloads, stem)
     if not path:
@@ -198,6 +235,44 @@ def _download(
             "webpage_url": info.get("webpage_url") or url,
         },
     )
+
+
+def _download_with_fallbacks(
+    url: str, options: Dict[str, Any], progress: Optional[ProgressFn]
+) -> Dict[str, Any]:
+    """Try the download, rotating YouTube player clients on a bot challenge.
+
+    Cookies, when supplied, are authoritative: if they fail there is nothing
+    left to rotate through, so the error is raised immediately rather than
+    burning five more attempts on the same block.
+    """
+    variants: List[Optional[str]] = [None]
+    if is_youtube(url) and not options.get("cookiefile"):
+        variants = [None if c == "default" else c for c in YOUTUBE_CLIENTS]
+
+    last_error: Optional[Exception] = None
+    for index, client in enumerate(variants):
+        attempt = dict(options)
+        if client:
+            attempt["extractor_args"] = {"youtube": {"player_client": [client]}}
+            log.info("retrying with the %s player client", client)
+            if progress:
+                progress(f"retrying download ({client})", 0.02)
+        try:
+            info = _download_with_module(url, attempt, progress)
+            if info is None:
+                info = _download_with_cli(url, attempt, progress)
+            return info
+        except IngestError as exc:
+            last_error = exc
+            if not looks_like_bot_check(exc) or index == len(variants) - 1:
+                break
+            continue
+
+    message = str(last_error)
+    if looks_like_bot_check(message):
+        raise IngestError(f"{BOT_CHECK_HELP}\n\nyt-dlp said: {message[:300]}")
+    raise IngestError(message) if last_error else IngestError(f"could not download {url}")
 
 
 def _existing_download(downloads: Path, stem: str) -> Optional[Path]:
@@ -280,6 +355,9 @@ def _download_with_cli(
     ]
     if options.get("cookiefile"):
         args += ["--cookies", str(options["cookiefile"])]
+    clients = options.get("extractor_args", {}).get("youtube", {}).get("player_client")
+    if clients:
+        args += ["--extractor-args", f"youtube:player_client={','.join(clients)}"]
     args.append(url)
 
     if progress:

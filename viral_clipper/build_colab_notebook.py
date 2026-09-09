@@ -181,10 +181,18 @@ BURN_CAPTIONS = True  #@param {type:"boolean"}
 TRANSCRIPTION_QUALITY = "small"  #@param ["tiny", "base", "small", "medium", "large-v3"]
 
 #@markdown ---
-#@markdown Leave `UPLOADED_FILE` empty to use the link above. If YouTube blocks the
-#@markdown download (see the note under Step 3), upload a video with the file browser
-#@markdown on the left and put its path here instead, e.g. `/content/my-video.mp4`.
+#@markdown ### If YouTube blocks the download
+#@markdown Colab runs on Google data-centre IPs, which YouTube often challenges with
+#@markdown *"Sign in to confirm you're not a bot"* — even for a video that downloads
+#@markdown fine on your own machine. The clipper retries several player clients
+#@markdown automatically. If it still fails, use **either** of these:
+#@markdown
+#@markdown **A · Upload the video** (always works). Download it yourself, drag it into
+#@markdown the file browser on the left, and put its path here:
 UPLOADED_FILE = ""  #@param {type:"string"}
+#@markdown **B · Use your cookies.** Export them with a *Get cookies.txt* browser
+#@markdown extension while logged into YouTube, upload the file, and put its path here:
+COOKIES_FILE = ""  #@param {type:"string"}
 
 # ---------------------------------------------------------------------------
 import logging, time
@@ -200,6 +208,18 @@ if not source:
     raise SystemExit("Paste a YouTube link (or an uploaded file path) first.")
 if source.startswith("http") and "dQw4w9WgXcQ" in source:
     print("⚠️  That is still the placeholder link — replace it with your own video.\n")
+
+cookies = COOKIES_FILE.strip()
+if cookies and not Path(cookies).exists():
+    raise SystemExit(f"No cookies file at {cookies}. Upload it, or clear the field.")
+if cookies:
+    # resolve_source takes cookies_file as a keyword, so bind it for this run.
+    import functools
+    import clipper.pipeline as _pipeline
+    _pipeline.resolve_source = functools.partial(
+        _pipeline.resolve_source, cookies_file=Path(cookies)
+    )
+    print(f"Using cookies from {cookies}\n")
 
 config = ClipperConfig(
     platform=PLATFORM,
@@ -230,6 +250,9 @@ try:
 except ClipperError as exc:
     print("\n\n❌", exc)
     raise SystemExit(str(exc)) from None
+except KeyboardInterrupt:
+    print("\n\nStopped.")
+    raise SystemExit("interrupted") from None
 
 print(f"\n\n✅ {len(RESULT.clips)} clips in {time.time() - started:.0f}s → {RESULT.output_dir}\n")
 print(f"Scanned {RESULT.stats['candidates']} possible moments "
@@ -241,79 +264,85 @@ for clip in RESULT.clips:
 '''
 
 DOWNLOAD_NOTE = """
-### If the YouTube download fails
+### A note on YouTube downloads
 
-Google's data-centre IP addresses are often challenged by YouTube, so a download that
-works on your laptop can fail in Colab with *"Sign in to confirm you're not a bot"*.
-Two ways around it:
+YouTube challenges requests coming from Google's own data-centre IPs — which is what
+Colab runs on — with *"Sign in to confirm you're not a bot"*. A link that downloads
+fine on your laptop can therefore fail here.
 
-- **Easiest:** download the video yourself, drag it into the file browser on the left,
-  and put its path in `UPLOADED_FILE` above.
-- **Or:** export your YouTube cookies with a *Get cookies.txt* browser extension, upload
-  the file, and run the cell below before Step 3.
+The clipper retries several YouTube player clients automatically, which clears the
+challenge much of the time. When it does not, Step 3 has two fields that always work:
+`UPLOADED_FILE` (upload the video yourself) and `COOKIES_FILE` (use your own cookies).
 
-This is a YouTube restriction, not something the clipper can fix on its own.
+This is a YouTube restriction rather than something the clipper can fix outright.
 """
 
-COOKIES = r'''
-#@title (Optional) Use cookies for YouTube { display-mode: "form" }
-#@markdown Upload a `cookies.txt` exported from your browser, then re-run Step 3.
-COOKIES_PATH = "/content/cookies.txt"  #@param {type:"string"}
-
-import os
-from pathlib import Path
-import clipper.ingest as ingest
-
-if Path(COOKIES_PATH).exists():
-    _original = ingest.resolve_source
-
-    def resolve_source_with_cookies(*args, **kwargs):
-        kwargs.setdefault("cookies_file", Path(COOKIES_PATH))
-        return _original(*args, **kwargs)
-
-    ingest.resolve_source = resolve_source_with_cookies
-    import clipper.pipeline as pipeline
-    pipeline.resolve_source = resolve_source_with_cookies
-    print(f"✅ Using cookies from {COOKIES_PATH} — now re-run Step 3.")
-else:
-    print(f"No file at {COOKIES_PATH}. Upload one with the file browser on the left.")
-'''
-
 PREVIEW = r'''
-#@title Step 4 · Watch the clips { display-mode: "form" }
+#@title Step 4 · Watch the clips { display-mode: "form", run: "auto" }
+#@markdown The grid below is instant. Videos are heavy — a 30s clip is several MB, and
+#@markdown embedding ten of them at once puts ~85 MB into this page and makes the tab
+#@markdown crawl. So pick one number at a time to play full size.
+PLAY_CLIP = 1  #@param {type:"slider", min:1, max:20, step:1}
+
 import base64
 from pathlib import Path
 from IPython.display import HTML, display
 
-cards = []
-for clip in RESULT.clips:
-    if not clip.video_path:
-        continue
-    encoded = base64.b64encode(Path(clip.video_path).read_bytes()).decode()
-    tags = " ".join(clip.copy.hashtags)
-    minutes, seconds = divmod(int(clip.start), 60)
-    cards.append(f"""
-      <div style="width:250px;background:#141824;border:1px solid #262c3d;border-radius:12px;
-                  overflow:hidden;color:#e8ecf5;font-family:system-ui,sans-serif">
-        <video src="data:video/mp4;base64,{encoded}" controls playsinline
-               style="width:100%;aspect-ratio:9/16;background:#000;display:block"></video>
-        <div style="padding:12px">
-          <div style="font-size:22px;font-weight:700;color:#ffe14d">{clip.score:.0f}<span
-               style="font-size:11px;color:#8b93a7;font-weight:400">/100</span>
-            <span style="float:right;font-size:11px;color:#8b93a7;line-height:26px">
-              {minutes}:{seconds:02d} · {clip.duration:.0f}s</span></div>
-          <div style="font-weight:600;font-size:13px;margin:6px 0;line-height:1.35">{clip.copy.title}</div>
-          <div style="font-size:11px;color:#6c8cff;word-break:break-word">{tags}</div>
-        </div>
-      </div>""")
+clips = [c for c in RESULT.clips if c.video_path]
+if not clips:
+    print("No rendered clips to show — run Step 3 first.")
+else:
+    def data_uri(path, mime):
+        return f"data:{mime};base64," + base64.b64encode(Path(path).read_bytes()).decode()
 
-if cards:
+    # Thumbnails are ~65 KB each, so the whole grid costs well under a megabyte.
+    cards = []
+    for clip in clips:
+        minutes, seconds = divmod(int(clip.start), 60)
+        poster = (
+            f'<img src="{data_uri(clip.thumbnail_path, "image/jpeg")}" '
+            'style="width:100%;aspect-ratio:9/16;object-fit:cover;display:block">'
+            if clip.thumbnail_path
+            else '<div style="width:100%;aspect-ratio:9/16;background:#000"></div>'
+        )
+        highlight = "#ffe14d" if clip.index == PLAY_CLIP else "#262c3d"
+        cards.append(f"""
+          <div style="width:170px;background:#141824;border:2px solid {highlight};
+                      border-radius:10px;overflow:hidden;color:#e8ecf5;
+                      font-family:system-ui,sans-serif">
+            {poster}
+            <div style="padding:9px">
+              <div style="font-size:17px;font-weight:700;color:#ffe14d">
+                {clip.index}. {clip.score:.0f}<span style="font-size:10px;color:#8b93a7;
+                     font-weight:400">/100</span>
+                <span style="float:right;font-size:10px;color:#8b93a7;line-height:22px">
+                  {minutes}:{seconds:02d}·{clip.duration:.0f}s</span></div>
+              <div style="font-size:11px;line-height:1.35;margin-top:4px">
+                {clip.copy.title[:70]}</div>
+            </div>
+          </div>""")
+
     display(HTML(
-        "<div style='display:flex;flex-wrap:wrap;gap:16px;background:#0b0d12;padding:16px'>"
+        "<div style='display:flex;flex-wrap:wrap;gap:11px;background:#0b0d12;padding:14px'>"
         + "".join(cards) + "</div>"
     ))
-else:
-    print("No rendered clips to show — run Step 3 first.")
+
+    chosen = next((c for c in clips if c.index == PLAY_CLIP), None)
+    if chosen is None:
+        print(f"\nNo clip {PLAY_CLIP} — this run produced {len(clips)}. "
+              "Move the slider into range.")
+    else:
+        size = Path(chosen.video_path).stat().st_size / 1e6
+        print(f"\nPlaying clip {chosen.index} ({size:.1f} MB) — "
+              "move the slider to watch another.")
+        display(HTML(f"""
+          <div style="max-width:290px;font-family:system-ui,sans-serif;color:#e8ecf5">
+            <video src="{data_uri(chosen.video_path, "video/mp4")}" controls playsinline
+                   style="width:100%;aspect-ratio:9/16;background:#000;border-radius:10px"></video>
+            <div style="font-weight:600;margin-top:8px">{chosen.copy.title}</div>
+            <div style="font-size:12px;color:#6c8cff;word-break:break-word;margin-top:4px">
+              {" ".join(chosen.copy.hashtags)}</div>
+          </div>"""))
 '''
 
 CAPTIONS = r'''
@@ -403,7 +432,6 @@ def build_notebook() -> Dict[str, Any]:
             code(UNPACK_TEMPLATE.format(blob=blob_literal), cellView="form"),
             markdown(DOWNLOAD_NOTE),
             code(RUN, cellView="form"),
-            code(COOKIES, cellView="form"),
             code(PREVIEW, cellView="form"),
             code(CAPTIONS, cellView="form"),
             code(DOWNLOAD, cellView="form"),
