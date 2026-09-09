@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe.add_argument("-o", "--output", type=Path, help="write SRT here")
 
     subparsers.add_parser("doctor", help="check that dependencies are installed")
+    subparsers.add_parser("gui", help="open the desktop window")
     return parser
 
 
@@ -90,6 +91,10 @@ def _add_clip_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--language", default=None)
     parser.add_argument("--transcript", dest="transcript_path", type=Path,
                         help="use an existing .srt/.vtt/.json instead of transcribing")
+    parser.add_argument("--source-height", dest="source_max_height", type=int, default=1080,
+                        metavar="N",
+                        help="tallest source to download (default 1080; try 2160 for "
+                             "sharper vertical crops)")
     parser.add_argument("--fps", type=int, choices=range(15, 61), metavar="N",
                         help="output frame rate (default: the platform preset's 30)")
     parser.add_argument("--no-normalize", action="store_true",
@@ -121,6 +126,7 @@ def config_from_args(args: argparse.Namespace) -> ClipperConfig:
         whisper_model=args.whisper_model,
         language=args.language,
         transcript_path=args.transcript_path,
+        source_max_height=args.source_max_height,
         fps=args.fps,
         normalize_audio=not args.no_normalize,
         ffmpeg_preset=args.ffmpeg_preset,
@@ -190,6 +196,12 @@ def command_transcribe(args: argparse.Namespace) -> int:
     else:
         print(srt)
     return 0
+
+
+def command_gui(_: argparse.Namespace) -> int:
+    from clipper.gui import launch
+
+    return launch()
 
 
 def command_doctor(_: argparse.Namespace) -> int:
@@ -281,6 +293,7 @@ COMMANDS = {
     "serve": command_serve,
     "transcribe": command_transcribe,
     "doctor": command_doctor,
+    "gui": command_gui,
 }
 
 

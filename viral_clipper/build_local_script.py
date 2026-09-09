@@ -28,8 +28,9 @@ TEMPLATE = '''#!/usr/bin/env python3
 Turns a long video into vertical short-form clips for TikTok, Reels and Shorts.
 The whole tool is embedded in this file; there is nothing to clone.
 
-    python viral_clipper.py --install                       # one time
-    python viral_clipper.py "https://youtube.com/watch?v=..." -n 10
+    python viral_clipper.py --install     # one time, installs what it needs
+    python viral_clipper.py               # opens the window
+    python viral_clipper.py "https://youtube.com/watch?v=..." -n 10   # or the CLI
 
 Run it on your own machine rather than a cloud VM: YouTube challenges
 data-centre IP ranges, so downloads that fail on Colab generally just work at
@@ -44,12 +45,11 @@ import sys
 import tarfile
 from pathlib import Path
 
-__version__ = "{version}"
+__version__ = "@@VERSION@@"
 
 # The clipper package, packed at build time.
 PACKAGE_BLOB = (
-{blob}
-)
+@@BLOB@@)
 
 HERE = Path(__file__).resolve().parent
 PACKAGE_DIR = HERE / ".viral_clipper"
@@ -109,7 +109,17 @@ def install():
             "  Linux   : sudo apt install ffmpeg\\n"
             "(the imageio-ffmpeg package just installed also provides one)"
         )
-    print("\\nReady. Now run:\\n  python viral_clipper.py \\"<video url>\\" -n 10")
+    try:
+        import tkinter  # noqa: F401
+        window = True
+    except ImportError:
+        window = False
+    print("\\nReady.")
+    if window:
+        print("  python viral_clipper.py                 <- opens the window")
+    else:
+        print("  (no tkinter in this Python, so the window is unavailable)")
+    print("  python viral_clipper.py \\"<video url>\\" -n 10   <- command line")
     return 0
 
 
@@ -117,12 +127,19 @@ def main():
     argv = sys.argv[1:]
     if argv and argv[0] in ("--install", "install", "--setup"):
         return install()
-    if not argv:
-        print(__doc__)
-        print("Run with --install first if you have not already.")
-        return 1
-
     unpack()
+
+    if not argv:
+        # No arguments means "just open the app" - which is what most people
+        # double-clicking this file expect.
+        try:
+            from clipper.gui import launch
+        except ImportError as exc:
+            print(f"Could not start the window: {exc}")
+            print("Run `python viral_clipper.py --install` first.")
+            return 1
+        return launch()
+
     from clipper.cli import main as cli_main
 
     # Default to ten clips, which is what most people want, while leaving an
@@ -148,9 +165,10 @@ def main() -> None:
             version = line.split('"')[1]
             break
 
-    OUTPUT.write_text(
-        TEMPLATE.format(blob=blob_literal, version=version), encoding="utf-8"
-    )
+    # Plain replacement rather than str.format: the template body contains
+    # f-strings, and every brace in it would otherwise need escaping.
+    body = TEMPLATE.replace("@@BLOB@@", blob_literal).replace("@@VERSION@@", version)
+    OUTPUT.write_text(body, encoding="utf-8")
     print(f"wrote {OUTPUT} ({OUTPUT.stat().st_size / 1024:.0f} KB)")
 
 

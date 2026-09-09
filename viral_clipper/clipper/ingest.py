@@ -25,12 +25,22 @@ ProgressFn = Callable[[str, float], None]
 _URL_RE = re.compile(r"^(https?|ftp)://", re.IGNORECASE)
 YTDLP_HINT = "pip install yt-dlp"
 
-#: Prefer a 1080p-or-smaller MP4: bigger sources cost render time and gain
-#: nothing, since every output is at most 1080x1920.
-DEFAULT_FORMAT = (
-    "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
-    "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
-)
+def format_for_height(max_height: int = 1080) -> str:
+    """yt-dlp format selector capped at ``max_height``.
+
+    Taller is not wasted work here: the 9:16 crop throws away most of a
+    landscape frame's width, so the source height sets the real detail in the
+    finished vertical clip.
+    """
+    height = max(360, int(max_height))
+    return (
+        f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/"
+        f"bestvideo[height<={height}]+bestaudio/"
+        f"best[height<={height}]/best"
+    )
+
+
+DEFAULT_FORMAT = format_for_height(1080)
 
 _CAPTION_SUFFIXES = (".vtt", ".srt")
 

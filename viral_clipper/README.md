@@ -17,7 +17,9 @@ clipper serve                      # same thing, with a web UI on :8000
 `Viral_Clipper_Colab.ipynb` (upload to Google Colab) and `viral_clipper.py`
 (`python viral_clipper.py --install`, then `python viral_clipper.py "<url>" -n 10`).
 Prefer the local script when clipping from YouTube: it downloads from your own IP,
-which YouTube does not challenge the way it challenges cloud VMs.
+which YouTube does not challenge the way it challenges cloud VMs. Run it with no
+arguments and it opens a small desktop window (link, number of clips, clip length,
+output folder, Go) instead of a terminal prompt.
 
 **No install? Use the notebook.** `Viral_Clipper_Colab.ipynb` is a single self-contained
 file — open it in Google Colab, paste a link, run the cells. The whole tool is embedded
@@ -172,10 +174,21 @@ clipper clip talk.mp4 --json > clips.json
 | `--layout` | `auto` | `auto`, `center`, `blur`, `fit` |
 | `--caption-style` | `punch` | `punch`, `clean`, `minimal` |
 | `--fps` | preset (30) | output frame rate, 15-60 |
+| `--source-height` | `1080` | tallest source to download; `2160` gives sharper crops |
 | `--model` | `small` | whisper size: `tiny` … `large-v3` |
 | `--transcript` | — | reuse an existing `.srt`/`.vtt`/`.json` |
 | `--dry-run` | off | score and plan only |
 | `--llm` | off | re-rank the shortlist with Claude |
+
+### Desktop window
+
+```bash
+clipper gui          # or just: python viral_clipper.py
+```
+
+Link, number of clips, clip length, output folder, Go. Output is always 1080x1920.
+Needs tkinter, which ships with Python on Windows and macOS (`apt install python3-tk`
+on Debian/Ubuntu).
 
 ### Web UI
 

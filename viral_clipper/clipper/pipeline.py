@@ -13,7 +13,7 @@ from clipper.captions import generate_copy
 from clipper.config import ClipperConfig
 from clipper.errors import NoMomentsFound
 from clipper.ffmpeg import FFmpeg
-from clipper.ingest import SourceMedia, resolve_source
+from clipper.ingest import SourceMedia, format_for_height, resolve_source
 from clipper.models import Clip, SocialCopy
 from clipper.reframe import plan_crop
 from clipper.render import RenderRequest, render_clip
@@ -103,7 +103,13 @@ def run_pipeline(
 
     # 1. Get the media locally -------------------------------------------
     tracker.stage("source")
-    media = resolve_source(source, workspace, ffmpeg, progress=tracker.sub())
+    media = resolve_source(
+        source,
+        workspace,
+        ffmpeg,
+        progress=tracker.sub(),
+        format_selector=format_for_height(config.source_max_height),
+    )
     log.info("source: %s (%.1fs, %dx%d)", media.path.name, media.info.duration,
              media.info.width, media.info.height)
 

@@ -56,20 +56,35 @@ def test_bundle_matches_the_package_on_disk(bundled):
     )
 
 
-def test_bundle_includes_the_cli_unlike_the_notebook(bundled):
-    """The runner drives clipper.cli, so it must ship it."""
+def test_bundle_includes_the_cli_and_gui_unlike_the_notebook(bundled):
+    """The runner drives clipper.cli and opens clipper.gui, so it ships both."""
     assert "clipper/cli.py" in bundled
+    assert "clipper/gui.py" in bundled
     assert not any(name.startswith("clipper/server") for name in bundled)
 
 
-def test_running_with_no_arguments_prints_usage(tmp_path):
+def test_running_with_no_arguments_opens_the_window(tmp_path):
+    """Double-clicking the file should give you the app, not a usage dump."""
+    body = SCRIPT.read_text(encoding="utf-8")
+    assert "from clipper.gui import launch" in body
+    assert "return launch()" in body
+
+    try:
+        import tkinter  # noqa: F401
+
+        pytest.skip("tkinter is present, so this would open a real window")
+    except ImportError:
+        pass
+
     copied = tmp_path / "viral_clipper.py"
     copied.write_bytes(SCRIPT.read_bytes())
     result = subprocess.run(
         [sys.executable, str(copied)], capture_output=True, text=True, cwd=tmp_path
     )
+    # Without tkinter it has to explain itself and point at the CLI.
+    output = result.stdout + result.stderr
     assert result.returncode == 1
-    assert "--install" in result.stdout
+    assert "tkinter" in output and "viral_clipper.py" in output
 
 
 def test_unpacking_puts_the_package_next_to_the_script(tmp_path):

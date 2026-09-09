@@ -140,6 +140,13 @@ class ClipperConfig:
     tracking_smoothing: float = 0.22  # EMA alpha, lower is calmer
     tracking_deadzone: float = 0.06  # fraction of frame width
 
+    # ingest
+    #: Tallest source to download. Cropping a landscape video to 9:16 keeps
+    #: only ~56% of its width, so a 1080p source yields a 607px-wide crop that
+    #: has to be upscaled 1.8x to fill a 1080x1920 frame. Pulling a taller
+    #: source is the difference between a soft clip and a sharp one.
+    source_max_height: int = 1080
+
     # rendering
     fps: Optional[int] = None  # override the preset's frame rate
     ffmpeg_preset: str = "veryfast"
@@ -204,6 +211,8 @@ class ClipperConfig:
             raise ValueError("llm_weight must be in [0, 1]")
         if self.fps is not None and not 15 <= self.fps <= 60:
             raise ValueError("fps must be between 15 and 60")
+        if not 360 <= self.source_max_height <= 4320:
+            raise ValueError("source_max_height must be between 360 and 4320")
         return self
 
     def to_dict(self) -> Dict[str, Any]:
