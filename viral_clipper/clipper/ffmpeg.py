@@ -77,11 +77,21 @@ class FFmpeg:
         first = (proc.stdout or "").splitlines()
         return first[0] if first else "unknown"
 
-    def run(self, args: Sequence[str], *, timeout: Optional[float] = None) -> str:
-        """Run ffmpeg with sane defaults, raising :class:`RenderError`."""
+    def run(
+        self,
+        args: Sequence[str],
+        *,
+        timeout: Optional[float] = None,
+        cwd: Optional[Path] = None,
+    ) -> str:
+        """Run ffmpeg with sane defaults, raising :class:`RenderError`.
+
+        ``cwd`` lets the caller reference filter files by bare name, which is
+        how Windows paths are kept out of the filtergraph entirely.
+        """
         cmd = [self.ffmpeg, "-hide_banner", "-nostdin", "-y", *[str(a) for a in args]]
         try:
-            proc = run_command(cmd, check=True, timeout=timeout)
+            proc = run_command(cmd, check=True, timeout=timeout, cwd=cwd)
         except subprocess.CalledProcessError as exc:
             raise RenderError(f"ffmpeg failed:\n{exc.stderr}") from exc
         except subprocess.TimeoutExpired as exc:

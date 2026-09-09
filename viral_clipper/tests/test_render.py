@@ -40,7 +40,8 @@ def test_escape_ffmpeg_path_escapes_filter_metacharacters():
 def test_auto_layout_uses_sendcmd_for_a_moving_crop():
     chain = build_video_chain(make_request(sendcmd_path=Path("/cmds.txt")))
     graph = ",".join(chain)
-    assert "sendcmd=f=/cmds.txt" in graph
+    # Referenced by bare name: ffmpeg runs from the output's folder.
+    assert "sendcmd=f=cmds.txt" in graph
     assert graph.index("sendcmd") < graph.index("crop="), "sendcmd must precede crop"
     assert "scale=1080:1920" in graph
     assert graph.startswith("setpts=PTS-STARTPTS")
@@ -115,3 +116,72 @@ def test_every_preset_builds_a_graph(platform):
     graph = build_filter_complex(make_request(preset=PRESETS[platform]))
     preset = PRESETS[platform]
     assert f"scale={preset.width}:{preset.height}" in graph
+
+
+# ---------------------------------------------------------------------------
+# Windows paths in a filtergraph
+# ---------------------------------------------------------------------------
+
+
+def windows_request(**kwargs):
+    """A request whose paths look like a real Windows install."""
+    output = Path("C:/Users/Pouria/Desktop/clipper/job/clip-01.mp4")
+    defaults = dict(
+        source=Path("C:/Users/Pouria/Desktop/clipper/downloads/video.mp4"),
+        output=output,
+        subtitle_path=output.with_suffix(".ass"),
+        sendcmd_path=output.with_suffix(".cmds.txt"),
+    )
+    defaults.update(kwargs)
+    return make_request(**defaults)
+
+
+def test_filtergraph_carries_no_drive_letter_or_backslash():
+    """`C:\\Users\\...` in a filtergraph breaks ffmpeg's option parser.
+
+    ffmpeg splits filter options on ':', so a drive colon ends the option and
+    the rest of the path is read as a new option name. Referring to files that
+    sit beside the output by bare name avoids the whole problem.
+    """
+    for layout in ("auto", "blur"):
+        graph = build_filter_complex(windows_request(layout=layout))
+        assert "C:" not in graph
+        assert "\\" not in graph
+        assert "subtitles=filename=clip-01.ass" in graph
+
+
+def test_sendcmd_is_referenced_by_bare_name():
+    graph = build_filter_complex(windows_request())
+    assert "sendcmd=f=clip-01.cmds.txt" in graph
+
+
+def test_ffmpeg_runs_from_the_folder_holding_those_files():
+    request = windows_request()
+    assert request.working_dir == Path("C:/Users/Pouria/Desktop/clipper/job")
+    assert request.filter_arg(request.subtitle_path) == "clip-01.ass"
+
+
+def test_a_file_outside_the_output_folder_is_still_escaped():
+    """The bare-name shortcut only applies next to the output."""
+    request = windows_request(subtitle_path=Path("C:/elsewhere/subs.ass"))
+    argument = request.filter_arg(request.subtitle_path)
+    # Double-escaped so one level survives the graph parser and reaches the
+    # option parser, and forward slashes rather than backslashes.
+    assert argument == "C\\\\:/elsewhere/subs.ass"
+    assert "\\\\:" in argument
+
+
+def test_filter_arg_of_nothing_is_empty():
+    assert windows_request().filter_arg(None) == ""
+
+
+def test_input_and_output_stay_absolute():
+    """Only filter arguments go relative; ffmpeg's own arguments do not."""
+    args = build_command(None, windows_request())
+    assert any("video.mp4" in str(a) and ("/" in str(a) or "\\" in str(a)) for a in args)
+    assert any(str(a).endswith("clip-01.mp4") for a in args)
+
+
+def test_posix_paths_are_unaffected():
+    graph = build_filter_complex(make_request(subtitle_path=Path("/x/subs.ass")))
+    assert "subtitles=filename=" in graph

@@ -21,12 +21,23 @@ from clipper.utils import ensure_dir, log
 def escape_ffmpeg_path(path: Path) -> str:
     """Escape a path for use as a filter argument.
 
-    Filtergraph parsing eats ``\\``, ``:``, ``'``, ``[``, ``]`` and ``,``,
-    so each one has to be escaped for filters such as ``subtitles`` and
-    ``sendcmd`` that take a filename.
+    ffmpeg unescapes twice here — once splitting the filtergraph, once
+    splitting a filter's ``key=value:key=value`` options — so a character that
+    matters at the option level needs escaping at both. That is why the drive
+    colon in ``C:\\Users`` comes out as ``\\\\:``: one level of escaping
+    survives the graph parser and reaches the option parser.
+
+    Backslashes are turned into forward slashes first. ffmpeg accepts those on
+    Windows, and it removes a whole class of escaping problems.
+
+    Prefer :func:`RenderRequest.filter_arg`, which sidesteps all of this by
+    running ffmpeg from the file's own directory.
     """
-    text = str(path)
-    for char in ("\\", ":", "'", "[", "]", ",", ";"):
+    text = str(path).replace("\\", "/")
+    # Order matters: escape the escape character before anything that uses it.
+    text = text.replace("'", "\\\\\\'")
+    text = text.replace(":", "\\\\:")
+    for char in ("[", "]", ",", ";"):
         text = text.replace(char, "\\" + char)
     return text
 
@@ -52,6 +63,26 @@ class RenderRequest:
     def duration(self) -> float:
         return max(0.05, self.end - self.start)
 
+    @property
+    def working_dir(self) -> Path:
+        """Where ffmpeg is run from, so filter files need no path at all."""
+        return self.output.parent
+
+    def filter_arg(self, path: Optional[Path]) -> str:
+        """How to refer to ``path`` inside the filtergraph.
+
+        Files that sit next to the output are named directly, because ffmpeg
+        runs from that folder. A Windows path in a filtergraph is a minefield
+        of double-escaped colons and backslashes; not putting one there is far
+        more reliable than escaping it correctly.
+        """
+        if path is None:
+            return ""
+        path = Path(path)
+        if path.parent == self.working_dir:
+            return escape_ffmpeg_path(Path(path.name))
+        return escape_ffmpeg_path(path)
+
 
 def build_video_chain(request: RenderRequest) -> List[str]:
     """The ordered list of video filters for this request.
@@ -74,7 +105,7 @@ def build_video_chain(request: RenderRequest) -> List[str]:
                 # turns a static window into a slow pan that follows the subject.
                 # No `eval=frame` here: ffmpeg 7 removed the option, and a crop
                 # driven by commands re-evaluates on every version regardless.
-                filters.append(f"sendcmd=f={escape_ffmpeg_path(request.sendcmd_path)}")
+                filters.append(f"sendcmd=f={request.filter_arg(request.sendcmd_path)}")
                 filters.append(
                     f"crop=w={plan.crop_w}:h={plan.crop_h}:x={plan.x}:y={plan.y}"
                 )
@@ -96,9 +127,9 @@ def build_video_chain(request: RenderRequest) -> List[str]:
 
     filters.append("setsar=1")
     if request.subtitle_path:
-        subtitle_arg = f"subtitles=filename={escape_ffmpeg_path(request.subtitle_path)}"
+        subtitle_arg = f"subtitles=filename={request.filter_arg(request.subtitle_path)}"
         if request.fonts_dir:
-            subtitle_arg += f":fontsdir={escape_ffmpeg_path(request.fonts_dir)}"
+            subtitle_arg += f":fontsdir={request.filter_arg(request.fonts_dir)}"
         filters.append(subtitle_arg)
     filters.append("format=yuv420p")
     return filters
@@ -125,10 +156,10 @@ def build_filter_complex(request: RenderRequest, *, has_audio: bool = True) -> s
         overlay_chain = ["setsar=1"]
         if request.subtitle_path:
             subtitle_arg = (
-                f"subtitles=filename={escape_ffmpeg_path(request.subtitle_path)}"
+                f"subtitles=filename={request.filter_arg(request.subtitle_path)}"
             )
             if request.fonts_dir:
-                subtitle_arg += f":fontsdir={escape_ffmpeg_path(request.fonts_dir)}"
+                subtitle_arg += f":fontsdir={request.filter_arg(request.fonts_dir)}"
             overlay_chain.append(subtitle_arg)
         overlay_chain.append("format=yuv420p")
         parts.append(
@@ -160,7 +191,7 @@ def build_command(
         "-ss",
         f"{max(0.0, request.start):.3f}",
         "-i",
-        str(request.source),
+        str(Path(request.source).resolve()),
         "-t",
         f"{request.duration:.3f}",
         "-filter_complex",
@@ -196,7 +227,7 @@ def build_command(
         args += ["-c:a", "aac", "-b:a", preset.audio_bitrate, "-ar", "48000", "-ac", "2"]
     else:
         args += ["-an"]
-    args += ["-movflags", "+faststart", str(request.output)]
+    args += ["-movflags", "+faststart", str(Path(request.output).resolve())]
     return args
 
 
@@ -209,6 +240,8 @@ def render_clip(
         write_sendcmd(request.plan, request.sendcmd_path)
 
     args = build_command(ffmpeg, request, has_audio=has_audio)
+    # Run from the clip's own folder so the filtergraph carries bare filenames.
+    request.working_dir.mkdir(parents=True, exist_ok=True)
     log.info(
         "rendering %s (%.1fs -> %.1fs, layout=%s)",
         request.output.name,
@@ -216,7 +249,7 @@ def render_clip(
         request.end,
         request.layout,
     )
-    ffmpeg.run(args, timeout=timeout)
+    ffmpeg.run(args, timeout=timeout, cwd=request.working_dir)
     if not request.output.exists() or request.output.stat().st_size == 0:
         raise RenderError(f"ffmpeg produced no output for {request.output}")
     return request.output
